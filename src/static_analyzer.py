@@ -384,42 +384,63 @@ class StaticAnalyzer:
         """Run all static checks and compute deterministic readiness score."""
         ecosystems = self.detect_ecosystems()
         findings: List[Finding] = []
+        category_scores: Dict[str, Dict[str, int]] = {}
         total_score = 0
 
-        # 1. README check
+        # 1. README check (Docs)
         f_readme, s_readme = self._check_readme()
         if f_readme:
             findings.append(f_readme)
         total_score += s_readme
 
-        # 2. LICENSE check
+        # 2. LICENSE check (Setup)
         f_license, s_license = self._check_license()
         if f_license:
             findings.append(f_license)
         total_score += s_license
 
-        # 3. CONTRIBUTING check
+        # 3. CONTRIBUTING check (Readiness)
         f_contr, s_contr = self._check_contributing()
         if f_contr:
             findings.append(f_contr)
         total_score += s_contr
 
-        # 4. CI check
+        # 4. CI check (Testing)
         f_ci, s_ci = self._check_ci()
         if f_ci:
             findings.append(f_ci)
         total_score += s_ci
 
-        # 5. Tests check
+        # 5. Tests check (Testing)
         f_tests, s_tests = self._check_tests(ecosystems)
         if f_tests:
             findings.append(f_tests)
         total_score += s_tests
 
-        # 6. Manifests & Env
+        # 6. Manifests & Env (Setup)
         f_mnf, s_mnf = self._check_manifests_and_env(ecosystems)
         findings.extend(f_mnf)
         total_score += s_mnf
+
+        # Category rollups for developer cockpit
+        category_scores = {
+            "Setup": {
+                "score": s_license + s_mnf,
+                "max": WEIGHT_LICENSE + WEIGHT_MANIFEST,
+            },
+            "Docs": {
+                "score": s_readme,
+                "max": WEIGHT_README,
+            },
+            "Testing": {
+                "score": s_ci + s_tests,
+                "max": WEIGHT_CI + WEIGHT_TESTS,
+            },
+            "Readiness": {
+                "score": s_contr,
+                "max": WEIGHT_CONTRIBUTING,
+            },
+        }
 
         # Ensure score boundaries
         final_score = max(0, min(TOTAL_POSSIBLE_SCORE, total_score))
@@ -442,4 +463,5 @@ class StaticAnalyzer:
             "total_files_analyzed": len(self.file_tree),
             "findings": [f.to_dict() for f in findings],
             "severity_counts": severity_counts,
+            "category_scores": category_scores,
         }

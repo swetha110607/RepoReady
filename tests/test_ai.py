@@ -1,12 +1,14 @@
 """Unit tests for AI analyzer (Google Gemma integration via Ollama API) using mocked HTTP responses."""
 
 import json
+import socket
 import urllib.error
 from unittest.mock import MagicMock, patch
 
 import pytest
 
 from src.ai_analyzer import AIAnalyzer, AIAnalyzerError
+from src.config import DEFAULT_AI_TIMEOUT
 
 
 @pytest.fixture
@@ -41,6 +43,19 @@ def mock_metadata():
     }
 
 
+def test_default_timeout_configuration():
+    """Verify that default timeout is set to 180s."""
+    analyzer = AIAnalyzer()
+    assert analyzer.timeout == DEFAULT_AI_TIMEOUT
+    assert analyzer.timeout == 180
+
+
+def test_custom_timeout_configuration():
+    """Verify that timeout can be overridden."""
+    analyzer = AIAnalyzer(timeout=60)
+    assert analyzer.timeout == 60
+
+
 @patch("urllib.request.urlopen")
 def test_generate_insights_success(mock_urlopen, mock_metadata, mock_findings):
     """Verify successful insight generation from mocked Ollama response."""
@@ -64,6 +79,31 @@ def test_generate_insights_success(mock_urlopen, mock_metadata, mock_findings):
 
     assert "Priority Fixes" in insights
     assert "README.md" in insights
+
+
+@patch("urllib.request.urlopen")
+def test_generate_insights_empty_response(mock_urlopen, mock_metadata, mock_findings):
+    """Verify handling when Ollama returns empty response text."""
+    mock_resp = MagicMock()
+    mock_resp.read.return_value = json.dumps({
+        "model": "gemma3:1b",
+        "response": "   ",
+        "done": True,
+    }).encode("utf-8")
+    mock_resp.__enter__.return_value = mock_resp
+    mock_urlopen.return_value = mock_resp
+
+    analyzer = AIAnalyzer()
+    with pytest.raises(AIAnalyzerError) as exc_info:
+        analyzer.generate_readiness_insights(
+            metadata=mock_metadata,
+            score=65,
+            max_score=100,
+            findings=mock_findings,
+            ecosystems=["Python"],
+        )
+
+    assert "empty response" in exc_info.value.user_message.lower()
 
 
 @patch("urllib.request.urlopen")
@@ -112,11 +152,29 @@ def test_generate_insights_connection_failure(mock_urlopen, mock_metadata, mock_
 
 
 @patch("urllib.request.urlopen")
-def test_generate_insights_timeout(mock_urlopen, mock_metadata, mock_findings):
-    """Verify handling of request timeouts."""
+def test_generate_insights_connection_timeout(mock_urlopen, mock_metadata, mock_findings):
+    """Verify graceful handling when connection socket times out."""
+    mock_urlopen.side_effect = urllib.error.URLError(socket.timeout("connection timed out"))
+
+    analyzer = AIAnalyzer(timeout=180)
+    with pytest.raises(AIAnalyzerError) as exc_info:
+        analyzer.generate_readiness_insights(
+            metadata=mock_metadata,
+            score=50,
+            max_score=100,
+            findings=mock_findings,
+            ecosystems=["Python"],
+        )
+
+    assert "connection timed out" in exc_info.value.user_message.lower()
+
+
+@patch("urllib.request.urlopen")
+def test_generate_insights_read_timeout(mock_urlopen, mock_metadata, mock_findings):
+    """Verify handling of read/generation timeouts."""
     mock_urlopen.side_effect = TimeoutError("Timed out")
 
-    analyzer = AIAnalyzer()
+    analyzer = AIAnalyzer(timeout=180)
     with pytest.raises(AIAnalyzerError) as exc_info:
         analyzer.generate_readiness_insights(
             metadata=mock_metadata,
@@ -127,6 +185,7 @@ def test_generate_insights_timeout(mock_urlopen, mock_metadata, mock_findings):
         )
 
     assert "timeout" in exc_info.value.user_message.lower()
+    assert "180" in exc_info.value.user_message
 
 
 @patch("urllib.request.urlopen")
