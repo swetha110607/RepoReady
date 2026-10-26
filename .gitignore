@@ -1,0 +1,25 @@
+# Python virtual environment
+.venv/
+venv/
+ENV/
+env/
+
+# Python cache and bytecode
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+.pytest_cache/
+
+# Streamlit config / cache
+.streamlit/secrets.toml
+
+# OS & IDE files
+.DS_Store
+Thumbs.db
+.vscode/
+.idea/
+
+# Environment / Secrets
+.env
+*.log
