@@ -19,6 +19,7 @@ MAX_FILE_SIZE_BYTES = 50 * 1024  # 50 KB max per inspected text file
 # Ollama / Gemma AI configuration
 OLLAMA_BASE_URL = os.environ.get("OLLAMA_BASE_URL", "http://localhost:11434")
 OLLAMA_MODEL = os.environ.get("OLLAMA_MODEL", "gemma3:1b")
+AI_ANALYSIS_VERSION = "2.0.0"  # Increment to invalidate prior cached prompt outputs
 # Allow configuration via OLLAMA_TIMEOUT or fallback to AI_REQUEST_TIMEOUT_SECONDS (default 180s)
 DEFAULT_AI_TIMEOUT = 180
 raw_timeout = os.environ.get("OLLAMA_TIMEOUT") or os.environ.get("AI_REQUEST_TIMEOUT_SECONDS")

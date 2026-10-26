@@ -9,7 +9,7 @@ from __future__ import annotations
 
 import streamlit as st
 
-from src.ai_analyzer import AIAnalyzer, AIAnalyzerError
+from src.ai_analyzer import AIAnalyzer, AIAnalyzerError, compute_repo_cache_key
 from src.config import (
     APP_DESCRIPTION,
     APP_NAME,
@@ -281,7 +281,7 @@ def render_cockpit_header():
             <div style="display: flex; align-items: center; justify-content: space-between; flex-wrap: wrap; gap: 0.5rem;">
                 <h1 class="cockpit-title">
                     <span>⚡ {APP_NAME}</span>
-                    <span class="cockpit-badge">v0.1.0 • Cockpit</span>
+                    <span class="cockpit-badge">v0.1.0</span>
                 </h1>
                 <span style="font-family: ui-monospace, monospace; font-size: 0.78rem; color: #8b949e; background: #161b22; padding: 0.25rem 0.6rem; border-radius: 4px; border: 1px solid #30363d;">
                     Engine: Deterministic Static Analyzer
@@ -425,7 +425,7 @@ def render_category_bars(category_scores: dict[str, dict[str, int]]):
 
 def main():
     st.set_page_config(
-        page_title=f"{APP_NAME} Cockpit",
+        page_title=f"{APP_NAME}",
         page_icon="⚡",
         layout="wide",
         initial_sidebar_state="collapsed",
@@ -484,6 +484,7 @@ def main():
                 st.session_state["analysis_results"] = results
                 st.session_state["last_url"] = clean_url
                 st.session_state["ai_insights"] = None
+                st.session_state["ai_insights_cache_key"] = None
             except GitHubFetchError as e:
                 st.error(f"**Diagnostic Error:** {e.user_message}")
                 return
@@ -623,44 +624,68 @@ def main():
         )
 
         ai_analyzer = AIAnalyzer()
+        current_cache_key = compute_repo_cache_key(
+            repo_url=st.session_state.get("last_url", ""),
+            metadata=metadata,
+            score=results["score"],
+            findings=findings,
+            model=OLLAMA_MODEL,
+            file_tree=bundle.get("file_tree"),
+            files=bundle.get("files"),
+        )
+
         col_ai_btn, _ = st.columns([1, 2])
         with col_ai_btn:
             generate_ai_clicked = st.button("Synthesize with Gemma", type="secondary", use_container_width=True)
 
         if generate_ai_clicked:
-            availability = ai_analyzer.check_availability()
-            if not availability.get("available"):
-                st.warning(
-                    f"⚠️ **Local Ollama daemon unreachable.**\n\n"
-                    f"Start Ollama: `ollama serve` and pull `{OLLAMA_MODEL}`.\n\n"
-                    f"*Deterministic static analysis above remains fully operational.*"
-                )
-            elif not availability.get("model_installed"):
-                st.warning(
-                    f"⚠️ **Model `{OLLAMA_MODEL}` not found in Ollama.** Run: `ollama pull {OLLAMA_MODEL}`."
-                )
+            # Check if matching cached insight already exists
+            if (
+                st.session_state.get("ai_insights")
+                and st.session_state.get("ai_insights_cache_key") == current_cache_key
+            ):
+                st.info("Loaded recent analysis from repository session cache.")
             else:
-                with st.spinner(f"Generating insights with local {OLLAMA_MODEL}..."):
-                    try:
-                        insights = ai_analyzer.generate_readiness_insights(
-                            metadata=metadata,
-                            score=results["score"],
-                            max_score=results["max_score"],
-                            findings=findings,
-                            ecosystems=results.get("ecosystems", ["General"]),
-                        )
-                        st.session_state["ai_insights"] = insights
-                    except AIAnalyzerError as e:
-                        st.error(f"**AI Engine Notice:** {e.user_message}")
-                        if e.details:
-                            st.caption(f"Details: `{e.details}`")
-                        if e.troubleshooting_hint:
-                            st.info(f"💡 {e.troubleshooting_hint}")
-                    except Exception as e:
-                        st.error("Unexpected error during AI synthesis.")
-                        st.caption(f"Details: `{e}`")
+                availability = ai_analyzer.check_availability()
+                if not availability.get("available"):
+                    st.warning(
+                        f"⚠️ **Local Ollama daemon unreachable.**\n\n"
+                        f"Start Ollama: `ollama serve` and pull `{OLLAMA_MODEL}`.\n\n"
+                        f"*Deterministic static analysis above remains fully operational.*"
+                    )
+                elif not availability.get("model_installed"):
+                    st.warning(
+                        f"⚠️ **Model `{OLLAMA_MODEL}` not found in Ollama.** Run: `ollama pull {OLLAMA_MODEL}`."
+                    )
+                else:
+                    with st.spinner(f"Generating repository intelligence with local {OLLAMA_MODEL}..."):
+                        try:
+                            insights = ai_analyzer.generate_readiness_insights(
+                                metadata=metadata,
+                                score=results["score"],
+                                max_score=results["max_score"],
+                                findings=findings,
+                                ecosystems=results.get("ecosystems", ["General"]),
+                                file_tree=bundle.get("file_tree"),
+                                files=bundle.get("files"),
+                            )
+                            st.session_state["ai_insights"] = insights
+                            st.session_state["ai_insights_cache_key"] = current_cache_key
+                        except AIAnalyzerError as e:
+                            st.error(f"**AI Engine Notice:** {e.user_message}")
+                            if e.details:
+                                st.caption(f"Details: `{e.details}`")
+                            if e.troubleshooting_hint:
+                                st.info(f"💡 {e.troubleshooting_hint}")
+                        except Exception as e:
+                            st.error("Unexpected error during AI synthesis.")
+                            st.caption(f"Details: `{e}`")
 
-        if st.session_state.get("ai_insights"):
+        # Invalidate output if repo context changed
+        if (
+            st.session_state.get("ai_insights")
+            and st.session_state.get("ai_insights_cache_key") == current_cache_key
+        ):
             st.markdown("<div style='height: 0.75rem;'></div>", unsafe_allow_html=True)
             st.markdown(
                 """
@@ -675,9 +700,9 @@ def main():
 
     # Footer
     st.markdown(
-        """
+        f"""
         <div style="text-align: center; font-size: 0.75rem; color: #484f58; margin-top: 2rem; border-top: 1px solid #21262d; padding-top: 1rem;">
-            RepoReady Developer Cockpit • 100% Free & Open-Source • Zero Tracking • Zero Remote Code Execution
+            {APP_NAME} • 100% Free & Open-Source • Zero Tracking • Zero Remote Code Execution
         </div>
         """,
         unsafe_allow_html=True,
