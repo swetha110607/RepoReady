@@ -1,0 +1,12 @@
+[theme]
+base = "dark"
+primaryColor = "#10b981"          # Emerald green accent
+backgroundColor = "#0e1117"       # Charcoal deep dark
+secondaryBackgroundColor = "#161b22" # Dark panel background
+textColor = "#e6edf3"             # Crisp light gray text
+font = "sans serif"
+
+[server]
+headless = true
+enableCORS = false
+enableXsrfProtection = false
